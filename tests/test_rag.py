@@ -64,10 +64,12 @@ class TestRetrieve:
         mock_index.query = AsyncMock(return_value=fake_results)
 
         with patch("src.services.rag.AsyncSearchIndex", return_value=mock_index):
-            chunks = await retrieve("How do I authenticate?")
+            chunks, embed_secs, retrieve_secs = await retrieve("How do I authenticate?")
 
         assert len(chunks) == 1
         assert chunks[0].source_file == "api.md"
+        assert embed_secs >= 0
+        assert retrieve_secs >= 0
         mock_embed.assert_called_once()
 
     @pytest.mark.asyncio
@@ -76,9 +78,11 @@ class TestRetrieve:
         mock_index.query = AsyncMock(return_value=[])
 
         with patch("src.services.rag.AsyncSearchIndex", return_value=mock_index):
-            chunks = await retrieve("Anything?")
+            chunks, embed_secs, retrieve_secs = await retrieve("Anything?")
 
         assert chunks == []
+        assert embed_secs >= 0
+        assert retrieve_secs >= 0
 
 
 # ---------------------------------------------------------------------------

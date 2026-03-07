@@ -14,6 +14,7 @@ from redisvl.schema import IndexSchema
 from src.config import get_settings
 from src.services import ollama_client as _llm
 from src.services.redis_manager import get_redis_client, _docs_schema
+from src.utils.metrics import StepTiming, metrics
 from src.utils.prompts import RAG_SYSTEM_PROMPT, RAG_PROMPT_TEMPLATE
 
 logger = logging.getLogger(__name__)
