@@ -42,6 +42,9 @@ class Settings(BaseSettings):
     llm_num_gpu: int = 99
     # num_thread: CPU threads for generation. 0 = let Ollama decide (usually optimal).
     llm_num_thread: int = 0
+    # keep_alive: how long Ollama keeps the model loaded after a request.
+    # Prevents cold-load penalty on the next request. e.g. "24h", "1h", "-1" (forever).
+    ollama_keep_alive: str = "24h"
 
     # Application
     log_level: str = "info"

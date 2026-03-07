@@ -94,6 +94,7 @@ async def generate(
         model=settings.llm_model,
         messages=messages,
         options=_llm_options(temperature),
+        keep_alive=settings.ollama_keep_alive,
     )
     return response.message.content
 
@@ -126,6 +127,7 @@ async def stream(
         model=settings.llm_model,
         messages=messages,
         options=_llm_options(temperature),
+        keep_alive=settings.ollama_keep_alive,
         stream=True,
     ):
         token = chunk.message.content
