@@ -53,14 +53,14 @@ async def get_cached_answer(question: str) -> str | None:
 
     if distance <= settings.cache_distance_threshold:
         logger.info(
-            "Cache HIT (distance=%.4f, threshold=%.4f) for: %s",
+            "Cache HIT (distance=%.4f <= threshold=%.4f) for: %s",
             distance,
             settings.cache_distance_threshold,
             question[:80],
         )
         return top["answer"]
 
-    logger.debug(
+    logger.info(
         "Cache MISS (distance=%.4f > threshold=%.4f) for: %s",
         distance,
         settings.cache_distance_threshold,

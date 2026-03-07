@@ -30,7 +30,7 @@ class Settings(BaseSettings):
     chunk_overlap: int = 30
 
     # Semantic cache
-    cache_distance_threshold: float = 0.15
+    cache_distance_threshold: float = 0.25
     cache_ttl_seconds: int = 86400  # 24 hours
 
     # Session memory
