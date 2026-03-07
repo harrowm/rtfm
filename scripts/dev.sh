@@ -38,7 +38,15 @@ until redis-cli ping 2>/dev/null | grep -q PONG; do
 done
 echo "✅ Redis is up and responding to PING."
 
-# 4. Activate uv environment and start app
+# 4. Kill any existing process on port 8000
+if lsof -ti :8000 >/dev/null 2>&1; then
+    echo "⚠️  Port 8000 in use — stopping previous server..."
+    lsof -ti :8000 | xargs kill -9
+    sleep 1
+    echo "✅ Previous server stopped."
+fi
+
+# 5. Activate uv environment and start app
 echo "🐍 Activating uv virtual environment..."
 source .venv/bin/activate
 
