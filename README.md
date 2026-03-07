@@ -147,8 +147,8 @@ rtfm-agent/
 ### Step 1: Clone and Initialize Project
 
 ```bash
-git clone <repository-url> rtfm-agent
-cd rtfm-agent
+git clone https://github.com/harrowm/rtfm.git
+cd rtfm
 
 # Initialize uv project environment
 uv python install 3.12
@@ -158,57 +158,53 @@ uv venv --python 3.12
 ### Step 2: Install Python Dependencies
 
 ```bash
-# Install all dependencies including development tools
 uv sync --all-extras
 ```
 
-### Step 3: Pull Required Ollama Models
+### Step 3: Start the Environment
 
 ```bash
-# Pull the primary language model (approximately 8-9 GB download)
-ollama pull qwen:14b
-
-# Pull the embedding model (approximately 1.2 GB download)
-ollama pull bge-m3
-
-# Verify models are available
-ollama list
+./scripts/dev.sh
 ```
 
-### Step 4: Start Redis Stack via Docker Compose
+`scripts/dev.sh` automates the remaining setup:
+
+1. **Ollama models** — pulls `qwen:14b` and `bge-m3` if not already present (~9-10 GB total on first run)
+2. **Docker Desktop** — launches it automatically if it isn't running and waits until the daemon is ready
+3. **Redis Stack** — starts the Redis Stack container via Docker Compose
+4. **FastAPI server** — starts the application at http://localhost:8000
+
+Interactive API documentation is available at http://localhost:8000/docs once the server is running.
+
+> **First run note:** Downloading the Ollama models can take several minutes depending on your connection. Subsequent runs skip the download and start in seconds.
+
+<details>
+<summary>Manual startup steps (if you prefer not to use dev.sh)</summary>
 
 ```bash
-# Start Redis Stack container (arm64 native image)
+# Pull Ollama models
+ollama pull qwen:14b
+ollama pull bge-m3
+
+# Start Redis Stack
 docker compose up -d redis-stack
 
 # Verify Redis connectivity
 redis-cli ping
 # Expected response: PONG
-```
 
-### Step 5: Create Redis Vector Indexes
-
-```bash
-# Run index initialization script
+# Initialize Redis vector indexes
 uv run python scripts/create_indexes.py
+
+# Start the application
+uv run uvicorn src.main:app --reload --host 127.0.0.1 --port 8000 --workers 1
 ```
 
 This creates two Redis indexes:
 - `docs`: For storing document chunks with vector embeddings and metadata
 - `rag_cache`: For semantic caching of question-answer pairs
 
-### Step 6: Start the Application
-
-```bash
-# Using the development script (recommended)
-./scripts/dev.sh
-
-# Or manually:
-source .venv/bin/activate
-uv run uvicorn src.main:app --reload --host 127.0.0.1 --port 8000 --workers 1
-```
-
-The API will be available at http://localhost:8000. Interactive API documentation is available at http://localhost:8000/docs.
+</details>
 
 ## Development Workflow
 
