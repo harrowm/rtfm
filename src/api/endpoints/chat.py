@@ -52,6 +52,7 @@ async def chat(
             # 2. RAG generation — hold the done event until after we've written to cache
             collected_tokens: list[str] = []
             done_event: str | None = None
+            should_cache = False
             with Timer() as t:
                 async for item in stream_answer(
                     req.question,
@@ -63,6 +64,8 @@ async def chat(
                     if isinstance(item, dict):
                         # Hold the done sentinel; forward everything else immediately
                         if item.get("done"):
+                            # Only cache real RAG answers (non-empty sources = not rejected/not-found)
+                            should_cache = bool(item.get("sources"))
                             done_event = json.dumps({**item, "cache_hit": False})
                         else:
                             yield f"data: {json.dumps({**item, 'cache_hit': False})}\n\n"
@@ -83,7 +86,7 @@ async def chat(
                 updated_session.add("user", req.question)
                 updated_session.add("assistant", full_answer)
                 await extract_and_save_memories(x_session_id, updated_session)
-            if full_answer:
+            if should_cache and full_answer:
                 await cache_answer(req.question, full_answer)
 
             # Now safe to send done — all writes are complete
@@ -117,7 +120,7 @@ async def chat(
 
     metrics.record_miss(t.elapsed)
 
-    if x_session_id:
+    if x_session_id and result.sources:
         await save_message(x_session_id, "user", req.question)
         await save_message(x_session_id, "assistant", result.answer)
         updated_session = session or SessionMemory(session_id=x_session_id)
@@ -125,7 +128,8 @@ async def chat(
         updated_session.add("assistant", result.answer)
         await extract_and_save_memories(x_session_id, updated_session)
 
-    await cache_answer(req.question, result.answer)
+    if result.sources:
+        await cache_answer(req.question, result.answer)
 
     return {
         "answer": result.answer,
