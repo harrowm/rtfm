@@ -5,9 +5,11 @@ Run with: uv run streamlit run scripts/ui.py
 from __future__ import annotations
 
 import json
+import subprocess
 import time
 from typing import Generator
 
+import psutil
 import requests
 import streamlit as st
 
@@ -111,6 +113,38 @@ with tab_status:
 
         with st.expander("Raw JSON"):
             st.json(data)
+
+    # Memory stats (psutil reads local machine — same as where models run)
+    st.markdown("---")
+    st.markdown("### System memory")
+    vm = psutil.virtual_memory()
+    used_gb = vm.used / 1024**3
+    total_gb = vm.total / 1024**3
+    avail_gb = vm.available / 1024**3
+    pct = vm.percent
+
+    m1, m2, m3 = st.columns(3)
+    m1.metric("Used", f"{used_gb:.1f} GB", help="Includes GPU (unified memory)")
+    m2.metric("Available", f"{avail_gb:.1f} GB")
+    m3.metric("Total", f"{total_gb:.1f} GB")
+    colour = "normal" if pct < 80 else "inverse"
+    st.progress(int(pct), text=f"{pct:.0f}% in use")
+    if pct > 85:
+        st.warning(
+            f"Memory pressure is high ({pct:.0f}%). Ollama may be offloading "
+            "model layers to CPU, causing slow TTFT. Consider using a smaller model "
+            "or closing other apps."
+        )
+
+    # Ollama loaded models
+    st.markdown("### Ollama GPU state")
+    try:
+        result = subprocess.run(
+            ["ollama", "ps"], capture_output=True, text=True, timeout=5
+        )
+        st.code(result.stdout or "(no models loaded)", language="text")
+    except Exception as exc:
+        st.caption(f"Could not run ollama ps: {exc}")
 
 # ===========================================================================
 # CHAT tab
