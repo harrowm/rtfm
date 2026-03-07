@@ -1,13 +1,27 @@
 # Chat endpoint with streaming support
 from __future__ import annotations
 
+import asyncio
 import json
+import logging
 
 from fastapi import APIRouter, Depends, Header
 from fastapi.responses import StreamingResponse
 
 from src.api.deps import get_session, get_long_term_memory
 from src.models.memory import LongTermMemory, SessionMemory
+
+logger = logging.getLogger(__name__)
+
+
+def _bg(coro) -> None:
+    """Schedule a coroutine as a background task, logging any exceptions."""
+    async def _run():
+        try:
+            await coro
+        except Exception as exc:
+            logger.warning("Background task failed: %s", exc)
+    asyncio.create_task(_run())
 from src.models.schemas import ChatRequest
 from src.services.cache import cache_answer, get_cached_answer
 from src.services.memory import extract_and_save_memories, save_message
@@ -75,21 +89,19 @@ async def chat(
 
             metrics.record_miss(t.elapsed)
 
-            # 3. Persist session + cache BEFORE yielding done — the ASGI runtime
-            #    closes the generator immediately after the client reads the final
-            #    event, so any awaits after the last yield are silently skipped.
+            # 3. Fire session + cache writes in the background, yield done immediately
             full_answer = "".join(collected_tokens)
             if x_session_id and full_answer:
-                await save_message(x_session_id, "user", req.question)
-                await save_message(x_session_id, "assistant", full_answer)
+                _bg(save_message(x_session_id, "user", req.question))
+                _bg(save_message(x_session_id, "assistant", full_answer))
                 updated_session = session or SessionMemory(session_id=x_session_id)
                 updated_session.add("user", req.question)
                 updated_session.add("assistant", full_answer)
-                await extract_and_save_memories(x_session_id, updated_session)
+                _bg(extract_and_save_memories(x_session_id, updated_session))
             if should_cache and full_answer:
-                await cache_answer(req.question, full_answer)
+                _bg(cache_answer(req.question, full_answer))
 
-            # Now safe to send done — all writes are complete
+            # Done is sent immediately — background writes continue independently
             if done_event:
                 yield f"data: {done_event}\n\n"
 
@@ -121,15 +133,15 @@ async def chat(
     metrics.record_miss(t.elapsed)
 
     if x_session_id and result.sources:
-        await save_message(x_session_id, "user", req.question)
-        await save_message(x_session_id, "assistant", result.answer)
+        _bg(save_message(x_session_id, "user", req.question))
+        _bg(save_message(x_session_id, "assistant", result.answer))
         updated_session = session or SessionMemory(session_id=x_session_id)
         updated_session.add("user", req.question)
         updated_session.add("assistant", result.answer)
-        await extract_and_save_memories(x_session_id, updated_session)
+        _bg(extract_and_save_memories(x_session_id, updated_session))
 
     if result.sources:
-        await cache_answer(req.question, result.answer)
+        _bg(cache_answer(req.question, result.answer))
 
     return {
         "answer": result.answer,
