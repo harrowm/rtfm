@@ -49,9 +49,9 @@ async def chat(
                 yield f"data: {json.dumps({'done': True, 'sources': [], 'cache_hit': True})}\n\n"
                 return
 
-            # 2. RAG generation
+            # 2. RAG generation — hold the done event until after we've written to cache
             collected_tokens: list[str] = []
-            sources: list[str] = []
+            done_event: str | None = None
             with Timer() as t:
                 async for item in stream_answer(
                     req.question,
@@ -60,26 +60,34 @@ async def chat(
                     history=history,
                 ):
                     if isinstance(item, dict):
-                        sources = item.get("sources", [])
-                        yield f"data: {json.dumps({**item, 'cache_hit': False})}\n\n"
+                        # Hold the done sentinel; forward everything else immediately
+                        if item.get("done"):
+                            done_event = json.dumps({**item, "cache_hit": False})
+                        else:
+                            yield f"data: {json.dumps({**item, 'cache_hit': False})}\n\n"
                     else:
                         collected_tokens.append(item)
                         yield f"data: {json.dumps({'token': item})}\n\n"
 
             metrics.record_miss(t.elapsed)
 
-            # 3. Persist session + cache
+            # 3. Persist session + cache BEFORE yielding done — the ASGI runtime
+            #    closes the generator immediately after the client reads the final
+            #    event, so any awaits after the last yield are silently skipped.
             full_answer = "".join(collected_tokens)
             if x_session_id and full_answer:
                 await save_message(x_session_id, "user", req.question)
                 await save_message(x_session_id, "assistant", full_answer)
-                # Extract long-term memories after every exchange
                 updated_session = session or SessionMemory(session_id=x_session_id)
                 updated_session.add("user", req.question)
                 updated_session.add("assistant", full_answer)
                 await extract_and_save_memories(x_session_id, updated_session)
             if full_answer:
                 await cache_answer(req.question, full_answer)
+
+            # Now safe to send done — all writes are complete
+            if done_event:
+                yield f"data: {done_event}\n\n"
 
         return StreamingResponse(
             event_stream(),
