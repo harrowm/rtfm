@@ -59,10 +59,9 @@ class RAGResult:
 async def retrieve(
     question: str,
     *,
-    top_k: int = 5,
+    top_k: int = 3,
     source_file: str | None = None,
 ) -> tuple[list[RetrievedChunk], float, float]:
-    """Return (chunks, embed_secs, retrieve_secs)."""
     """Embed *question* and return the top-k most similar document chunks.
 
     Args:
@@ -71,7 +70,7 @@ async def retrieve(
         source_file: Optional metadata filter — restrict results to one file.
 
     Returns:
-        List of :class:`RetrievedChunk` ordered by similarity (best first).
+        A tuple of (chunks, embed_secs, retrieve_secs).
     """
     settings = get_settings()
     client = await get_redis_client()
@@ -149,9 +148,10 @@ def _build_prompt(
 async def answer(
     question: str,
     *,
-    top_k: int = 5,
+    top_k: int = 3,
     source_file: str | None = None,
     history: list[dict] | None = None,
+    system_prompt: str | None = None,
 ) -> RAGResult:
     """Run the full RAG pipeline and return a complete answer.
 
@@ -178,11 +178,12 @@ async def answer(
         )
 
     prompt = _build_prompt(question, chunks, history)
-    prompt_tokens = _count_tokens(RAG_SYSTEM_PROMPT + prompt)
+    system = system_prompt or RAG_SYSTEM_PROMPT
+    prompt_tokens = _count_tokens(system + prompt)
     logger.info("Prompt tokens: %d (system=%d, user=%d)",
-                prompt_tokens, _count_tokens(RAG_SYSTEM_PROMPT), _count_tokens(prompt))
+                prompt_tokens, _count_tokens(system), _count_tokens(prompt))
     t_gen = time.perf_counter()
-    answer_text = await _llm.generate(prompt, system=RAG_SYSTEM_PROMPT)
+    answer_text = await _llm.generate(prompt, system=system)
     generate_secs = time.perf_counter() - t_gen
     total_secs = time.perf_counter() - t0
 
@@ -213,9 +214,10 @@ async def answer(
 async def stream_answer(
     question: str,
     *,
-    top_k: int = 5,
+    top_k: int = 3,
     source_file: str | None = None,
     history: list[dict] | None = None,
+    system_prompt: str | None = None,
 ) -> AsyncIterator[str | dict]:
     """Run the RAG pipeline and stream tokens as they are generated.
 
@@ -241,14 +243,15 @@ async def stream_answer(
 
     prompt = _build_prompt(question, chunks, history)
     sources = list(dict.fromkeys(c.source_file for c in chunks))
+    system = system_prompt or RAG_SYSTEM_PROMPT
 
-    prompt_tokens = _count_tokens(RAG_SYSTEM_PROMPT + prompt)
+    prompt_tokens = _count_tokens(system + prompt)
     logger.info("Prompt tokens (stream): %d (system=%d, user=%d)",
-                prompt_tokens, _count_tokens(RAG_SYSTEM_PROMPT), _count_tokens(prompt))
+                prompt_tokens, _count_tokens(system), _count_tokens(prompt))
 
     t_gen = time.perf_counter()
     ttft_secs: float | None = None
-    async for token in _llm.stream(prompt, system=RAG_SYSTEM_PROMPT):
+    async for token in _llm.stream(prompt, system=system):
         if ttft_secs is None:
             ttft_secs = time.perf_counter() - t_gen
         yield token

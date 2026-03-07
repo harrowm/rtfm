@@ -58,6 +58,7 @@ async def chat(
                     top_k=req.top_k,
                     source_file=source_file,
                     history=history,
+                    system_prompt=_system_with_memory(ltm),
                 ):
                     if isinstance(item, dict):
                         # Hold the done sentinel; forward everything else immediately
@@ -111,6 +112,7 @@ async def chat(
             top_k=req.top_k,
             source_file=source_file,
             history=history,
+            system_prompt=_system_with_memory(ltm),
         )
 
     metrics.record_miss(t.elapsed)

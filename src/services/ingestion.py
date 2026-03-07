@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import hashlib
 import logging
+import struct
 import time
 from pathlib import Path
 
@@ -65,8 +66,6 @@ async def _store_chunks(
     source_name: str,
 ) -> int:
     """Write chunks and their embeddings to Redis as hash entries."""
-    import struct
-
     pipe = client.pipeline(transaction=False)
     for idx, (chunk, embedding) in enumerate(zip(chunks, embeddings)):
         key = _chunk_key(source_file, idx)
@@ -93,6 +92,7 @@ async def _store_chunks(
 async def ingest_file(
     file_path: Path,
     source_name: str | None = None,
+    source_file: str | None = None,
 ) -> dict:
     """Ingest a document file into Redis.
 
@@ -112,7 +112,7 @@ async def ingest_file(
     """
     t0 = time.perf_counter()
     source_name = source_name or file_path.stem
-    source_file = file_path.name
+    source_file = source_file or file_path.name
 
     logger.info("Ingesting %s (%s)", source_file, source_name)
 

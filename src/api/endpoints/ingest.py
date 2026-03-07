@@ -34,12 +34,14 @@ async def ingest(
         tmp_path = Path(tmp.name)
 
     try:
-        result = await ingest_file(tmp_path, source_name=source_name or file.filename)
+        result = await ingest_file(
+            tmp_path,
+            source_name=source_name or file.filename,
+            source_file=file.filename,
+        )
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc))
     finally:
         tmp_path.unlink(missing_ok=True)
 
-    # Overwrite source_file with the original uploaded filename
-    result["source_file"] = file.filename
     return JSONResponse({"status": "success", **result})
