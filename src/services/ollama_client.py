@@ -95,7 +95,7 @@ async def generate(
         model=settings.llm_model,
         messages=messages,
         options=_llm_options(temperature),
-        keep_alive="-1",
+        keep_alive=-1,
     )
     return response.message.content
 
@@ -128,7 +128,7 @@ async def stream(
         model=settings.llm_model,
         messages=messages,
         options=_llm_options(temperature),
-        keep_alive="-1",
+        keep_alive=-1,
         stream=True,
     ):
         token = chunk.message.content
@@ -161,7 +161,7 @@ async def warm_models() -> None:
             model=settings.llm_model,
             messages=[ollama.Message(role="user", content="hi")],
             options=_llm_options(temperature=0.0),
-            keep_alive="-1",
+            keep_alive=-1,
         )
         logger.info("LLM '%s' loaded and pinned in GPU memory.", settings.llm_model)
     except Exception as exc:
@@ -179,7 +179,7 @@ async def keepalive_loop() -> None:
                 model=settings.llm_model,
                 messages=[ollama.Message(role="user", content=".")],
                 options={"num_predict": 1},
-                keep_alive="-1",
+                keep_alive=-1,
             )
             logger.debug("Keep-alive ping sent to Ollama.")
         except Exception as exc:
