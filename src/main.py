@@ -1,4 +1,5 @@
 # FastAPI application entrypoint
+import asyncio
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
@@ -7,14 +8,17 @@ from src.api.endpoints.chat import router as chat_router
 from src.api.endpoints.ingest import router as ingest_router
 from src.api.endpoints.metrics import router as metrics_router
 from src.api.endpoints.admin import router as admin_router
-from src.services.ollama_client import check_models
+from src.services.ollama_client import check_models, warm_models, keepalive_loop
 from src.services.redis_manager import close_redis_client, ensure_indexes, get_redis_client
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     await ensure_indexes()
+    await warm_models()
+    task = asyncio.create_task(keepalive_loop())
     yield
+    task.cancel()
     await close_redis_client()
 
 

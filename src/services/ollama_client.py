@@ -1,6 +1,7 @@
 # Unified LLM and embedding client
 from __future__ import annotations
 
+import asyncio
 import logging
 from collections.abc import AsyncIterator
 
@@ -94,7 +95,7 @@ async def generate(
         model=settings.llm_model,
         messages=messages,
         options=_llm_options(temperature),
-        keep_alive=settings.ollama_keep_alive,
+        keep_alive="-1",
     )
     return response.message.content
 
@@ -127,7 +128,7 @@ async def stream(
         model=settings.llm_model,
         messages=messages,
         options=_llm_options(temperature),
-        keep_alive=settings.ollama_keep_alive,
+        keep_alive="-1",
         stream=True,
     ):
         token = chunk.message.content
@@ -138,6 +139,52 @@ async def stream(
 # ---------------------------------------------------------------------------
 # Health check
 # ---------------------------------------------------------------------------
+
+async def warm_models() -> None:
+    """Load LLM and embedding models into GPU memory at startup.
+
+    Sends a minimal request to each model so the first real user request
+    doesn't pay the cold-load penalty (~15-20s for a 14B model).
+    """
+    settings = get_settings()
+    client = _async_client()
+    logger.info("Warming up models (this loads them into GPU memory)...")
+    try:
+        # Warm embedding model
+        await client.embed(model=settings.embedding_model, input="warmup")
+        logger.info("Embedding model '%s' loaded.", settings.embedding_model)
+    except Exception as exc:
+        logger.warning("Could not warm embedding model: %s", exc)
+    try:
+        # Warm LLM — minimal prompt, keep_alive=-1 pins it in memory permanently
+        await client.chat(
+            model=settings.llm_model,
+            messages=[ollama.Message(role="user", content="hi")],
+            options=_llm_options(temperature=0.0),
+            keep_alive="-1",
+        )
+        logger.info("LLM '%s' loaded and pinned in GPU memory.", settings.llm_model)
+    except Exception as exc:
+        logger.warning("Could not warm LLM: %s", exc)
+
+
+async def keepalive_loop() -> None:
+    """Background task: ping Ollama every 10 minutes to prevent model eviction."""
+    settings = get_settings()
+    client = _async_client()
+    while True:
+        await asyncio.sleep(600)  # 10 minutes
+        try:
+            await client.chat(
+                model=settings.llm_model,
+                messages=[ollama.Message(role="user", content=".")],
+                options={"num_predict": 1},
+                keep_alive="-1",
+            )
+            logger.debug("Keep-alive ping sent to Ollama.")
+        except Exception as exc:
+            logger.warning("Keep-alive ping failed: %s", exc)
+
 
 async def check_models() -> dict[str, bool]:
     """Return availability status for the configured LLM and embedding models.
