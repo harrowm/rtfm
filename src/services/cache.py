@@ -46,6 +46,7 @@ async def get_cached_answer(question: str) -> str | None:
     results = await index.query(query)
 
     if not results:
+        logger.info("Cache EMPTY (no entries) for: %s", question[:80])
         return None
 
     top = results[0]

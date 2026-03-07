@@ -1,5 +1,6 @@
 # FastAPI application entrypoint
 import asyncio
+import logging
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
@@ -14,6 +15,8 @@ from src.services.redis_manager import close_redis_client, ensure_indexes, get_r
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    # Must run after uvicorn configures logging, otherwise it gets overwritten
+    logging.getLogger("src").setLevel(logging.INFO)
     await ensure_indexes()
     await warm_models()
     task = asyncio.create_task(keepalive_loop())

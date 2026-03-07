@@ -405,7 +405,7 @@ with tab_metrics:
                     "generate_secs": "Generate (s)",
                     "total_secs": "Total (s)",
                 })
-                st.dataframe(df.style.format("{:.2f}"), use_container_width=True)
+                st.dataframe(df.style.format("{:.2f}"), width='stretch')
                 st.bar_chart(df[["Embed (s)", "Retrieve (s)", "Generate (s)"]])
 
             with st.expander("Prometheus text format"):
