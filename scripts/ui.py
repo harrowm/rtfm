@@ -47,6 +47,31 @@ with st.sidebar:
     st.markdown(f"[Swagger UI]({url_input}/docs)  |  [ReDoc]({url_input}/redoc)")
 
 # ---------------------------------------------------------------------------
+# Shared helpers
+# ---------------------------------------------------------------------------
+
+def _render_timing(timing: dict | None, elapsed: float | None) -> None:
+    """Render a compact timing breakdown under a chat message."""
+    if timing:
+        embed = timing.get("embed_secs", 0)
+        retrieve = timing.get("retrieve_secs", 0)
+        ttft = timing.get("ttft_secs")
+        generate = timing.get("generate_secs", 0)
+        total = timing.get("total_secs", 0)
+        parts = [
+            f"embed **{embed:.2f}s**",
+            f"retrieve **{retrieve:.2f}s**",
+        ]
+        if ttft is not None:
+            parts.append(f"ttft **{ttft:.2f}s**")
+        parts.append(f"generate **{generate:.2f}s**")
+        parts.append(f"total **{total:.2f}s**")
+        st.caption("⏱ " + " · ".join(parts))
+    elif elapsed is not None:
+        st.caption(f"⏱ total **{elapsed:.2f}s**")
+
+
+# ---------------------------------------------------------------------------
 # Tabs
 # ---------------------------------------------------------------------------
 tab_status, tab_chat, tab_ingest, tab_metrics, tab_admin = st.tabs(
@@ -123,6 +148,7 @@ with tab_chat:
                 st.caption("Sources: " + ", ".join(msg["sources"]))
             if msg.get("cache_hit"):
                 st.caption("⚡ Cache hit")
+            _render_timing(msg.get("timing"), msg.get("elapsed"))
 
     # Input
     if question := st.chat_input("Ask a question about your docs…"):
@@ -149,6 +175,7 @@ with tab_chat:
             sources: list[str] = []
             cache_hit = False
             elapsed = None
+            timing = None
 
             if use_stream:
                 # SSE streaming
@@ -175,6 +202,7 @@ with tab_chat:
                             if event.get("done"):
                                 sources = event.get("sources", [])
                                 cache_hit = event.get("cache_hit", False)
+                                timing = event.get("timing")
                                 break
                     answer_placeholder.markdown("".join(collected))
                     full_answer = "".join(collected)
@@ -205,8 +233,7 @@ with tab_chat:
                 st.caption("Sources: " + ", ".join(sources))
             if cache_hit:
                 st.caption("⚡ Cache hit")
-            if elapsed is not None:
-                st.caption(f"⏱ {elapsed:.2f}s")
+            _render_timing(timing, elapsed)
 
         # Save to history
         st.session_state["messages"].append(
@@ -215,6 +242,8 @@ with tab_chat:
                 "content": full_answer,
                 "sources": sources,
                 "cache_hit": cache_hit,
+                "timing": timing,
+                "elapsed": elapsed,
             }
         )
 
