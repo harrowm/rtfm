@@ -236,6 +236,34 @@ curl -X DELETE http://localhost:8000/session/my-session
 
 ---
 
+## Streamlit UI
+
+A browser-based UI lets you interact with every API without writing any `curl` commands.
+
+### Start the UI
+
+Make sure the API server is already running (`./scripts/dev.sh`), then in a second terminal:
+
+```bash
+uv run streamlit run scripts/ui.py
+```
+
+Streamlit opens automatically at **http://localhost:8501**.
+
+### UI tabs
+
+| Tab | What you can do |
+|---|---|
+| 🟢 **Status** | Check `/health` — see Redis connectivity and model availability |
+| 💬 **Chat** | Ask questions with streaming, set a session ID, choose top-K chunks, and filter by source file |
+| 📂 **Ingest** | Drag-and-drop upload `.md`, `.txt`, `.html`, or `.pdf` files into the vector index |
+| 📊 **Metrics** | View cache hit rate, latency, and request counts; optionally auto-refresh every 5 s |
+| 🛠 **Admin** | Flush the semantic cache, clear a session's conversation history, or run raw GET requests |
+
+The API base URL defaults to `http://localhost:8000` and can be changed in the sidebar.
+
+---
+
 ## Tests
 
 The test suite mocks all external services — no running Redis or Ollama needed.
