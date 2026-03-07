@@ -34,6 +34,15 @@ class Settings(BaseSettings):
     # Session memory
     session_ttl_hours: int = 24
 
+    # LLM performance tuning (passed directly to Ollama)
+    # num_ctx: KV-cache context window. Smaller = less memory + faster time-to-first-token.
+    # 4096 comfortably fits top_k=5 chunks × 500 tokens + prompt overhead.
+    llm_num_ctx: int = 4096
+    # num_gpu: layers to offload to GPU. 99 = offload everything (recommended for Apple Silicon).
+    llm_num_gpu: int = 99
+    # num_thread: CPU threads for generation. 0 = let Ollama decide (usually optimal).
+    llm_num_thread: int = 0
+
     # Application
     log_level: str = "info"
     app_host: str = "127.0.0.1"

@@ -17,6 +17,19 @@ def _async_client() -> ollama.AsyncClient:
     return ollama.AsyncClient(host=settings.ollama_base_url)
 
 
+def _llm_options(temperature: float) -> dict:
+    """Build the Ollama options dict from config settings."""
+    settings = get_settings()
+    opts: dict = {"temperature": temperature}
+    if settings.llm_num_ctx > 0:
+        opts["num_ctx"] = settings.llm_num_ctx
+    if settings.llm_num_gpu >= 0:
+        opts["num_gpu"] = settings.llm_num_gpu
+    if settings.llm_num_thread > 0:
+        opts["num_thread"] = settings.llm_num_thread
+    return opts
+
+
 # ---------------------------------------------------------------------------
 # Embeddings
 # ---------------------------------------------------------------------------
@@ -80,7 +93,7 @@ async def generate(
     response = await client.chat(
         model=settings.llm_model,
         messages=messages,
-        options={"temperature": temperature},
+        options=_llm_options(temperature),
     )
     return response.message.content
 
@@ -112,7 +125,7 @@ async def stream(
     async for chunk in await client.chat(
         model=settings.llm_model,
         messages=messages,
-        options={"temperature": temperature},
+        options=_llm_options(temperature),
         stream=True,
     ):
         token = chunk.message.content

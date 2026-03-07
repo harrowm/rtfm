@@ -51,7 +51,8 @@ async def retrieve(
     *,
     top_k: int = 5,
     source_file: str | None = None,
-) -> list[RetrievedChunk]:
+) -> tuple[list[RetrievedChunk], float, float]:
+    """Return (chunks, embed_secs, retrieve_secs)."""
     """Embed *question* and return the top-k most similar document chunks.
 
     Args:
@@ -68,9 +69,11 @@ async def retrieve(
     schema = IndexSchema.from_dict(_docs_schema(settings.embedding_dims))
     index = AsyncSearchIndex(schema=schema, redis_client=client)
 
+    t_embed_start = time.perf_counter()
     question_embedding = await _llm.embed(question)
-    blob = struct.pack(f"{len(question_embedding)}f", *question_embedding)
+    embed_secs = time.perf_counter() - t_embed_start
 
+    blob = struct.pack(f"{len(question_embedding)}f", *question_embedding)
     filters = f"@source_file:{{{source_file}}}" if source_file else None
 
     query = VectorQuery(
@@ -81,7 +84,9 @@ async def retrieve(
         filter_expression=filters,
     )
 
+    t_retrieve_start = time.perf_counter()
     results = await index.query(query)
+    retrieve_secs = time.perf_counter() - t_retrieve_start
 
     chunks = [
         RetrievedChunk(
@@ -95,7 +100,7 @@ async def retrieve(
     ]
 
     logger.debug("Retrieved %d chunks for question: %s", len(chunks), question[:80])
-    return chunks
+    return chunks, embed_secs, retrieve_secs
 
 
 # ---------------------------------------------------------------------------
@@ -151,7 +156,7 @@ async def answer(
     """
     t0 = time.perf_counter()
 
-    chunks = await retrieve(question, top_k=top_k, source_file=source_file)
+    chunks, embed_secs, retrieve_secs = await retrieve(question, top_k=top_k, source_file=source_file)
 
     if not chunks:
         return RAGResult(
@@ -163,7 +168,23 @@ async def answer(
         )
 
     prompt = _build_prompt(question, chunks, history)
+    t_gen = time.perf_counter()
     answer_text = await _llm.generate(prompt, system=RAG_SYSTEM_PROMPT)
+    generate_secs = time.perf_counter() - t_gen
+    total_secs = time.perf_counter() - t0
+
+    timing: StepTiming = {
+        "embed_secs": round(embed_secs, 3),
+        "retrieve_secs": round(retrieve_secs, 3),
+        "generate_secs": round(generate_secs, 3),
+        "ttft_secs": None,
+        "total_secs": round(total_secs, 3),
+    }
+    metrics.record_step_timing(timing)
+    logger.info(
+        "RAG timing — embed=%.2fs retrieve=%.2fs generate=%.2fs total=%.2fs",
+        embed_secs, retrieve_secs, generate_secs, total_secs,
+    )
 
     sources = list(dict.fromkeys(c.source_file for c in chunks))  # preserve order, dedupe
 
@@ -172,7 +193,7 @@ async def answer(
         answer=answer_text,
         sources=sources,
         chunks=chunks,
-        elapsed_seconds=round(time.perf_counter() - t0, 2),
+        elapsed_seconds=round(total_secs, 2),
     )
 
 
@@ -197,17 +218,38 @@ async def stream_answer(
             else:
                 yield f"data: {json.dumps({'token': item})}\\n\\n"
     """
-    chunks = await retrieve(question, top_k=top_k, source_file=source_file)
+    t0 = time.perf_counter()
+    chunks, embed_secs, retrieve_secs = await retrieve(question, top_k=top_k, source_file=source_file)
 
     if not chunks:
         yield "I couldn't find any relevant documentation to answer your question."
-        yield {"done": True, "sources": []}
+        yield {"done": True, "sources": [], "timing": None}
         return
 
     prompt = _build_prompt(question, chunks, history)
     sources = list(dict.fromkeys(c.source_file for c in chunks))
 
+    t_gen = time.perf_counter()
+    ttft_secs: float | None = None
     async for token in _llm.stream(prompt, system=RAG_SYSTEM_PROMPT):
+        if ttft_secs is None:
+            ttft_secs = time.perf_counter() - t_gen
         yield token
 
-    yield {"done": True, "sources": sources}
+    generate_secs = time.perf_counter() - t_gen
+    total_secs = time.perf_counter() - t0
+
+    timing: StepTiming = {
+        "embed_secs": round(embed_secs, 3),
+        "retrieve_secs": round(retrieve_secs, 3),
+        "generate_secs": round(generate_secs, 3),
+        "ttft_secs": round(ttft_secs, 3) if ttft_secs is not None else None,
+        "total_secs": round(total_secs, 3),
+    }
+    metrics.record_step_timing(timing)
+    logger.info(
+        "RAG timing (stream) — embed=%.2fs retrieve=%.2fs ttft=%.2fs generate=%.2fs total=%.2fs",
+        embed_secs, retrieve_secs, ttft_secs or 0, generate_secs, total_secs,
+    )
+
+    yield {"done": True, "sources": sources, "timing": timing}

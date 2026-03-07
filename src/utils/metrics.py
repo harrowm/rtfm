@@ -2,8 +2,18 @@
 from __future__ import annotations
 
 import time
+from collections import deque
 from dataclasses import dataclass, field
 from threading import Lock
+from typing import TypedDict
+
+
+class StepTiming(TypedDict):
+    embed_secs: float
+    retrieve_secs: float
+    generate_secs: float
+    ttft_secs: float | None   # time-to-first-token (streaming only)
+    total_secs: float
 
 
 @dataclass
@@ -17,6 +27,8 @@ class _Metrics:
         default_factory=lambda: {0.5: 0, 1.0: 0, 2.0: 0, 5.0: 0, 10.0: 0, float("inf"): 0}
     )
     _lock: Lock = field(default_factory=Lock)
+    # Rolling window of per-step timings (last 20 requests)
+    _step_timings: deque = field(default_factory=lambda: deque(maxlen=20))
 
     def record_hit(self, latency: float) -> None:
         with self._lock:
@@ -27,6 +39,18 @@ class _Metrics:
         with self._lock:
             self.cache_misses += 1
             self._record_latency(latency)
+
+    def record_step_timing(self, timing: "StepTiming") -> None:
+        with self._lock:
+            self._step_timings.append(timing)
+
+    def last_step_timing(self) -> "StepTiming | None":
+        with self._lock:
+            return self._step_timings[-1] if self._step_timings else None
+
+    def recent_step_timings(self, n: int = 10) -> list["StepTiming"]:
+        with self._lock:
+            return list(self._step_timings)[-n:]
 
     def _record_latency(self, latency: float) -> None:
         self.total_requests += 1

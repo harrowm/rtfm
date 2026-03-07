@@ -295,9 +295,62 @@ with tab_metrics:
             c4.metric("Hit rate", f"{m.get('hit_rate', 0):.1%}")
             c5.metric("Avg latency", f"{m.get('avg_latency_seconds', 0):.2f}s")
 
+            # Per-step timing breakdown
+            last = m.get("last_request_timing")
+            recent = m.get("recent_timings", [])
+
+            if last:
+                st.markdown("---")
+                st.markdown("### ⏱ Last request — step breakdown")
+                t1, t2, t3, t4, t5 = st.columns(5)
+                t1.metric("Embed", f"{last.get('embed_secs', 0):.2f}s",
+                          help="Time to embed the question with bge-m3")
+                t2.metric("Retrieve", f"{last.get('retrieve_secs', 0):.2f}s",
+                          help="Redis HNSW vector search time")
+                t3.metric("TTFT", f"{last.get('ttft_secs') or 0:.2f}s",
+                          help="Time to first token from LLM (streaming only)")
+                t4.metric("Generate", f"{last.get('generate_secs', 0):.2f}s",
+                          help="Total LLM inference time")
+                t5.metric("Total", f"{last.get('total_secs', 0):.2f}s")
+
+                if last.get("generate_secs", 0) > 15:
+                    st.warning(
+                        "**LLM is the bottleneck** (`generate` > 15s). Tips:\n"
+                        "- Set `LLM_NUM_CTX=2048` in `.env` to reduce KV-cache size (fastest win)\n"
+                        "- Switch to a smaller model: `LLM_MODEL=qwen2.5:7b` in `.env`\n"
+                        "- Reduce `top_k` in Chat options to send less context to the LLM\n"
+                        "- Ensure Ollama is using the GPU: check `ollama ps` in a terminal"
+                    )
+                elif last.get("embed_secs", 0) > 3:
+                    st.warning(
+                        "**Embedding is slow** (`embed` > 3s). Check Ollama is running "
+                        "and the bge-m3 model is loaded (`ollama ps`)."
+                    )
+                else:
+                    st.success("Timing looks healthy.")
+
+            if recent:
+                st.markdown("---")
+                st.markdown("### 📈 Recent requests (last 10)")
+                import pandas as pd
+                df = pd.DataFrame(recent)[
+                    ["embed_secs", "retrieve_secs", "ttft_secs", "generate_secs", "total_secs"]
+                ].rename(columns={
+                    "embed_secs": "Embed (s)",
+                    "retrieve_secs": "Retrieve (s)",
+                    "ttft_secs": "TTFT (s)",
+                    "generate_secs": "Generate (s)",
+                    "total_secs": "Total (s)",
+                })
+                st.dataframe(df.style.format("{:.2f}"), use_container_width=True)
+                st.bar_chart(df[["Embed (s)", "Retrieve (s)", "Generate (s)"]])
+
             with st.expander("Prometheus text format"):
                 prom_resp = requests.get(f"{base_url()}/metrics", timeout=5)
                 st.code(prom_resp.text, language="text")
+
+            with st.expander("Raw JSON"):
+                st.json(m)
 
         except Exception as exc:
             st.error(f"Could not fetch metrics: {exc}")
