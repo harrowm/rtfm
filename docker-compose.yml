@@ -1,0 +1,15 @@
+# Redis Stack and optional Agent Memory Server
+services:
+  redis-stack:
+    image: redis/redis-stack:latest
+    container_name: rtfm-redis
+    ports:
+      - "6379:6379"
+      - "8001:8001"
+    volumes:
+      - redis-data:/data
+    environment:
+      - REDIS_ARGS=--maxmemory 1gb --maxmemory-policy allkeys-lru
+
+volumes:
+  redis-data:
