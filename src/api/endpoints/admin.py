@@ -2,6 +2,7 @@
 from fastapi import APIRouter
 
 from src.services.cache import flush_cache
+from src.services.ingestion import flush_docs
 from src.services.memory import clear_session
 
 router = APIRouter(tags=["admin"])
@@ -11,6 +12,13 @@ router = APIRouter(tags=["admin"])
 async def cache_flush() -> dict:
     """Delete all entries from the semantic cache. Does not affect the document index."""
     deleted = await flush_cache()
+    return {"status": "ok", "deleted": deleted}
+
+
+@router.post("/docs/flush", summary="Flush all ingested document chunks")
+async def docs_flush() -> dict:
+    """Delete all document chunks from the vector index. Does not affect the cache."""
+    deleted = await flush_docs()
     return {"status": "ok", "deleted": deleted}
 
 

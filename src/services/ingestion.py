@@ -167,3 +167,16 @@ async def ingest_text(
         "chunks_processed": stored,
         "elapsed_seconds": round(elapsed, 2),
     }
+
+
+async def flush_docs() -> int:
+    """Delete all document chunks from the docs index.
+
+    Returns the number of keys deleted.
+    """
+    client = await get_redis_client()
+    keys = [k async for k in client.scan_iter("doc:*")]
+    if keys:
+        await client.delete(*keys)
+    logger.info("Flushed %d document chunks", len(keys))
+    return len(keys)

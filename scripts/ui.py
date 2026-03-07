@@ -445,6 +445,21 @@ with tab_admin:
 
     st.markdown("---")
 
+    # --- Docs flush ---
+    st.markdown("### 📄 Flush document index")
+    st.caption("Deletes all ingested document chunks. Use this to remove stale or duplicate chunks before re-ingesting.")
+
+    if st.button("Flush documents", type="primary", key="flush_docs"):
+        try:
+            resp = requests.post(f"{base_url()}/docs/flush", timeout=10)
+            resp.raise_for_status()
+            result = resp.json()
+            st.success(f"✅ Flushed {result.get('deleted', 0)} document chunks.")
+        except Exception as exc:
+            st.error(f"Error: {exc}")
+
+    st.markdown("---")
+
     # --- Session clear ---
     st.markdown("### 🧹 Clear session history")
     st.caption("Deletes the conversation history for a given session ID.")
