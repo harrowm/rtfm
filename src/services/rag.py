@@ -164,6 +164,7 @@ async def answer(
     Returns:
         A :class:`RAGResult` with the answer and retrieved sources.
     """
+    settings = get_settings()
     t0 = time.perf_counter()
 
     chunks, embed_secs, retrieve_secs = await retrieve(question, top_k=top_k, source_file=source_file)
@@ -172,6 +173,21 @@ async def answer(
         return RAGResult(
             question=question,
             answer="I couldn't find any relevant documentation to answer your question.",
+            sources=[],
+            chunks=[],
+            elapsed_seconds=round(time.perf_counter() - t0, 2),
+        )
+
+    # Gate on retrieval score — if the best chunk is too distant the question is off-topic
+    best_score = chunks[0].score
+    if best_score > settings.retrieval_score_threshold:
+        logger.info(
+            "Off-topic question rejected (best chunk distance=%.4f > threshold=%.4f): %s",
+            best_score, settings.retrieval_score_threshold, question[:80],
+        )
+        return RAGResult(
+            question=question,
+            answer="I can only answer questions about the uploaded documentation. Please ask something related to those documents.",
             sources=[],
             chunks=[],
             elapsed_seconds=round(time.perf_counter() - t0, 2),
@@ -233,11 +249,23 @@ async def stream_answer(
             else:
                 yield f"data: {json.dumps({'token': item})}\\n\\n"
     """
+    settings = get_settings()
     t0 = time.perf_counter()
     chunks, embed_secs, retrieve_secs = await retrieve(question, top_k=top_k, source_file=source_file)
 
     if not chunks:
         yield "I couldn't find any relevant documentation to answer your question."
+        yield {"done": True, "sources": [], "timing": None}
+        return
+
+    # Gate on retrieval score — if the best chunk is too distant the question is off-topic
+    best_score = chunks[0].score
+    if best_score > settings.retrieval_score_threshold:
+        logger.info(
+            "Off-topic question rejected (best chunk distance=%.4f > threshold=%.4f): %s",
+            best_score, settings.retrieval_score_threshold, question[:80],
+        )
+        yield "I can only answer questions about the uploaded documentation. Please ask something related to those documents."
         yield {"done": True, "sources": [], "timing": None}
         return
 

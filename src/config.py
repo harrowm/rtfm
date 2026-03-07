@@ -33,6 +33,13 @@ class Settings(BaseSettings):
     cache_distance_threshold: float = 0.25
     cache_ttl_seconds: int = 86400  # 24 hours
 
+    # Retrieval scope gating
+    # Cosine distance of the best-matching chunk above which the question is
+    # considered out-of-scope. 0=identical, 1=opposite. Tune to your content:
+    # - 0.5 is conservative (strict scope, may reject edge-case valid questions)
+    # - 0.7 is permissive (allows loosely related questions through)
+    retrieval_score_threshold: float = 0.6
+
     # Session memory
     session_ttl_hours: int = 24
 

@@ -12,6 +12,8 @@ Rules:
 - Be concise but complete.
 - Use code blocks for any code, commands, or configuration snippets.
 - If the user's question is a follow-up, use the conversation history to resolve pronouns and references.
+- If the question is unrelated to the documentation (e.g. general knowledge, off-topic requests), respond with:
+  "I can only answer questions about the uploaded documentation. Please ask something related to those documents."
 """
 
 RAG_PROMPT_TEMPLATE = """\

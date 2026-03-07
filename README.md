@@ -82,6 +82,7 @@ cp .env.example .env
 | `CHUNK_SIZE` | `300` | Max tokens per document chunk |
 | `CHUNK_OVERLAP` | `30` | Token overlap between consecutive chunks |
 | `CACHE_DISTANCE_THRESHOLD` | `0.25` | Cosine distance below which a cached answer is returned |
+| `RETRIEVAL_SCORE_THRESHOLD` | `0.6` | Cosine distance above which a question is considered off-topic and rejected without LLM inference |
 | `LLM_NUM_CTX` | `4096` | LLM context window in tokens |
 | `LLM_NUM_GPU` | `99` | GPU layers (99 = all layers on GPU) |
 | `OLLAMA_KEEP_ALIVE` | `24h` | How long Ollama keeps models loaded in memory |
