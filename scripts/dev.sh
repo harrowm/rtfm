@@ -43,13 +43,26 @@ if lsof -ti :8000 >/dev/null 2>&1; then
     echo "⚠️  Port 8000 in use — stopping previous server..."
     lsof -ti :8000 | xargs kill -9
     sleep 1
-    echo "✅ Previous server stopped."
+    echo "Previous API server stopped."
+fi
+if lsof -ti :8501 >/dev/null 2>&1; then
+    echo "Port 8501 in use - stopping previous UI server..."
+    lsof -ti :8501 | xargs kill -9
+    sleep 1
+    echo "Previous UI server stopped."
 fi
 
-# 5. Activate uv environment and start app
-echo "🐍 Activating uv virtual environment..."
+# 5. Activate uv environment
 source .venv/bin/activate
 
-echo "🚀 Starting FastAPI server on http://localhost:8000"
-uv run uvicorn src.main:app --reload --host 0.0.0.0 --port 8000 \
-    --workers 1  # Keep to 1 worker on 16GB M4 Air to save RAM
+# 6. Start Streamlit UI in the background
+echo "Starting Streamlit UI on http://localhost:8501"
+uv run streamlit run scripts/ui.py --server.headless true --server.port 8501 &
+STREAMLIT_PID=$!
+
+# Kill both processes cleanly on Ctrl+C
+trap "echo Shutting down...; kill $STREAMLIT_PID 2>/dev/null; exit 0" INT TERM
+
+# 7. Start FastAPI server in the foreground
+echo "Starting FastAPI server on http://localhost:8000"
+uv run uvicorn src.main:app --reload --host 0.0.0.0 --port 8000 --workers 1
