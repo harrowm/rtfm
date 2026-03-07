@@ -17,9 +17,14 @@ async def cache_flush() -> dict:
 
 @router.post("/docs/flush", summary="Flush all ingested document chunks")
 async def docs_flush() -> dict:
-    """Delete all document chunks from the vector index. Does not affect the cache."""
-    deleted = await flush_docs()
-    return {"status": "ok", "deleted": deleted}
+    """Delete all document chunks from the vector index.
+
+    Also flushes the semantic cache since cached answers are based on the
+    now-deleted documents and would otherwise continue to be served.
+    """
+    deleted_docs = await flush_docs()
+    deleted_cache = await flush_cache()
+    return {"status": "ok", "deleted_docs": deleted_docs, "deleted_cache": deleted_cache}
 
 
 @router.delete("/session/{session_id}", summary="Clear a session's conversation history")

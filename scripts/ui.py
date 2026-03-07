@@ -447,14 +447,14 @@ with tab_admin:
 
     # --- Docs flush ---
     st.markdown("### 📄 Flush document index")
-    st.caption("Deletes all ingested document chunks. Use this to remove stale or duplicate chunks before re-ingesting.")
+    st.caption("Deletes all ingested document chunks and automatically flushes the cache (cached answers are based on the old docs).")
 
     if st.button("Flush documents", type="primary", key="flush_docs"):
         try:
             resp = requests.post(f"{base_url()}/docs/flush", timeout=10)
             resp.raise_for_status()
             result = resp.json()
-            st.success(f"✅ Flushed {result.get('deleted', 0)} document chunks.")
+            st.success(f"✅ Flushed {result.get('deleted_docs', 0)} document chunks and {result.get('deleted_cache', 0)} cache entries.")
         except Exception as exc:
             st.error(f"Error: {exc}")
 
