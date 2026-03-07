@@ -3,15 +3,20 @@ set -e
 
 echo "🔧 Starting RTFM Agent dev environment on Mac M4..."
 
-# 1. Ensure Ollama models are available
-if ! ollama list | grep -q "qwen:14b"; then
-    echo "📥 Pulling Qwen 14B (this may take a few minutes)..."
-    ollama pull qwen:14b
+# 1. Determine models from .env (fallback to defaults if not set)
+LLM_MODEL=$(grep -E '^LLM_MODEL=' .env 2>/dev/null | cut -d= -f2 | tr -d '"' || echo "qwen2.5:7b")
+EMBEDDING_MODEL=$(grep -E '^EMBEDDING_MODEL=' .env 2>/dev/null | cut -d= -f2 | tr -d '"' || echo "bge-m3")
+
+echo "Using LLM: $LLM_MODEL, Embedding: $EMBEDDING_MODEL"
+
+if ! ollama list | grep -q "$LLM_MODEL"; then
+    echo "Pulling $LLM_MODEL (this may take a few minutes)..."
+    ollama pull "$LLM_MODEL"
 fi
 
-if ! ollama list | grep -q "bge-m3"; then
-    echo "📥 Pulling bge-m3 embedding model..."
-    ollama pull bge-m3
+if ! ollama list | grep -q "$EMBEDDING_MODEL"; then
+    echo "Pulling $EMBEDDING_MODEL..."
+    ollama pull "$EMBEDDING_MODEL"
 fi
 
 # 2. Ensure Docker Desktop is running

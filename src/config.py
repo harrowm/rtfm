@@ -19,7 +19,7 @@ class Settings(BaseSettings):
     ollama_base_url: str = "http://localhost:11434"
 
     # Models
-    llm_model: str = "qwen:14b"
+    llm_model: str = "qwen2.5:7b"
     embedding_model: str = "bge-m3"
     embedding_dims: int = 1024
 
