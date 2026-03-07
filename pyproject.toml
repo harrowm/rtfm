@@ -9,13 +9,9 @@ dependencies = [
     "uvicorn[standard]>=0.32.0",
     "python-multipart>=0.0.18",
     # AI/LLM
-    "langchain>=0.3.0",
-    "langchain-redis>=0.1.0",
-    "langchain-community>=0.3.0",
     "ollama>=0.4.0",
     # Document processing
     "pypdf>=4.3.1",
-    "markdown>=3.7",
     "beautifulsoup4>=4.12.3",
     "tiktoken>=0.8.0",
     # Redis
@@ -23,10 +19,8 @@ dependencies = [
     "redisvl>=0.15.0",
     # Utilities
     "pydantic-settings>=2.6.0",
-    "python-dotenv>=1.0.1",
-    "structlog>=24.4.0",
     "prometheus-client>=0.21.0",
-    "psutil>=6.1.0",  # For memory monitoring on M4 Air
+    "psutil>=6.1.0",
     "streamlit>=1.55.0",
     "requests>=2.32.5",
 ]
