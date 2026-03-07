@@ -24,8 +24,10 @@ class Settings(BaseSettings):
     embedding_dims: int = 1024
 
     # Chunking
-    chunk_size: int = 500
-    chunk_overlap: int = 50
+    # Smaller chunks = less context sent to LLM = faster prefill (TTFT)
+    # 300 tokens × top_k=3 = ~900 tokens of context vs 500×5=2500 previously
+    chunk_size: int = 300
+    chunk_overlap: int = 30
 
     # Semantic cache
     cache_distance_threshold: float = 0.15

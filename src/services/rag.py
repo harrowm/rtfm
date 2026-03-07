@@ -17,6 +17,15 @@ from src.services.redis_manager import get_redis_client, _docs_schema
 from src.utils.metrics import StepTiming, metrics
 from src.utils.prompts import RAG_SYSTEM_PROMPT, RAG_PROMPT_TEMPLATE
 
+try:
+    import tiktoken
+    _enc = tiktoken.get_encoding("cl100k_base")
+    def _count_tokens(text: str) -> int:
+        return len(_enc.encode(text))
+except Exception:
+    def _count_tokens(text: str) -> int:  # type: ignore[misc]
+        return len(text) // 4  # rough fallback
+
 logger = logging.getLogger(__name__)
 
 
@@ -169,6 +178,9 @@ async def answer(
         )
 
     prompt = _build_prompt(question, chunks, history)
+    prompt_tokens = _count_tokens(RAG_SYSTEM_PROMPT + prompt)
+    logger.info("Prompt tokens: %d (system=%d, user=%d)",
+                prompt_tokens, _count_tokens(RAG_SYSTEM_PROMPT), _count_tokens(prompt))
     t_gen = time.perf_counter()
     answer_text = await _llm.generate(prompt, system=RAG_SYSTEM_PROMPT)
     generate_secs = time.perf_counter() - t_gen
@@ -229,6 +241,10 @@ async def stream_answer(
 
     prompt = _build_prompt(question, chunks, history)
     sources = list(dict.fromkeys(c.source_file for c in chunks))
+
+    prompt_tokens = _count_tokens(RAG_SYSTEM_PROMPT + prompt)
+    logger.info("Prompt tokens (stream): %d (system=%d, user=%d)",
+                prompt_tokens, _count_tokens(RAG_SYSTEM_PROMPT), _count_tokens(prompt))
 
     t_gen = time.perf_counter()
     ttft_secs: float | None = None

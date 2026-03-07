@@ -8,7 +8,7 @@ class ChatRequest(BaseModel):
     question: str = Field(..., min_length=1, max_length=4096)
     session_id: str | None = None
     stream: bool = True
-    top_k: int = Field(default=5, ge=1, le=20)
+    top_k: int = Field(default=3, ge=1, le=20)
     filters: dict | None = None  # e.g. {"source_file": "api-reference.md"}
 
 
