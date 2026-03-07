@@ -15,8 +15,13 @@ from src.services.redis_manager import close_redis_client, ensure_indexes, get_r
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Must run after uvicorn configures logging, otherwise it gets overwritten
-    logging.getLogger("src").setLevel(logging.INFO)
+    # Attach uvicorn's handler to our logger so src.* messages appear in server output
+    src_logger = logging.getLogger("src")
+    src_logger.setLevel(logging.INFO)
+    uvicorn_handler = logging.getLogger("uvicorn").handlers
+    for h in uvicorn_handler:
+        src_logger.addHandler(h)
+    src_logger.propagate = False
     await ensure_indexes()
     await warm_models()
     task = asyncio.create_task(keepalive_loop())
