@@ -60,6 +60,9 @@ echo "Starting Streamlit UI on http://localhost:8501"
 uv run streamlit run scripts/ui.py --server.headless true --server.port 8501 &
 STREAMLIT_PID=$!
 
+# Open browser once Streamlit is ready
+(sleep 4 && open "http://localhost:8501") &
+
 # Kill both processes cleanly on Ctrl+C
 trap "echo Shutting down...; kill $STREAMLIT_PID 2>/dev/null; exit 0" INT TERM
 
