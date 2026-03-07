@@ -36,8 +36,9 @@ until redis-cli ping 2>/dev/null | grep -q PONG; do
     echo "⏳ Waiting for Redis..."
     sleep 1
 done
+echo "✅ Redis is up and responding to PING."
 
-# 3. Activate uv environment and start app
+# 4. Activate uv environment and start app
 echo "🐍 Activating uv virtual environment..."
 source .venv/bin/activate
 

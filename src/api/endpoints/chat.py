@@ -1,1 +1,190 @@
 # Chat endpoint with streaming support
+from __future__ import annotations
+
+import json
+
+from fastapi import APIRouter, Depends, Header
+from fastapi.responses import StreamingResponse
+
+from src.api.deps import get_session, get_long_term_memory
+from src.models.memory import LongTermMemory, SessionMemory
+from src.models.schemas import ChatRequest
+from src.services.cache import cache_answer, get_cached_answer
+from src.services.memory import extract_and_save_memories, save_message
+from src.services.rag import answer, stream_answer
+from src.utils.metrics import Timer, metrics
+from src.utils.prompts import RAG_SYSTEM_PROMPT
+
+router = APIRouter(prefix="/chat", tags=["chat"])
+
+
+def _system_with_memory(ltm: LongTermMemory | None) -> str:
+    """Prepend long-term memory facts to the system prompt if available."""
+    if not ltm or not ltm.facts:
+        return RAG_SYSTEM_PROMPT
+    return RAG_SYSTEM_PROMPT + "\n\n" + ltm.to_context_string()
+
+
+@router.post("", summary="Ask a question about ingested documentation")
+async def chat(
+    req: ChatRequest,
+    x_session_id: str | None = Header(default=None, alias="X-Session-Id"),
+    session: SessionMemory | None = Depends(get_session),
+    ltm: LongTermMemory | None = Depends(get_long_term_memory),
+):
+    source_file = (req.filters or {}).get("source_file")
+    history = session.to_history_dicts() if session else []
+
+    if req.stream:
+        async def event_stream():
+            # 1. Cache check
+            with Timer() as t:
+                cached = await get_cached_answer(req.question)
+            if cached:
+                metrics.record_hit(t.elapsed)
+                if x_session_id:
+                    await save_message(x_session_id, "user", req.question)
+                    await save_message(x_session_id, "assistant", cached)
+                yield f"data: {json.dumps({'token': cached})}\n\n"
+                yield f"data: {json.dumps({'done': True, 'sources': [], 'cache_hit': True})}\n\n"
+                return
+
+            # 2. RAG generation
+            collected_tokens: list[str] = []
+            sources: list[str] = []
+            with Timer() as t:
+                async for item in stream_answer(
+                    req.question,
+                    top_k=req.top_k,
+                    source_file=source_file,
+                    history=history,
+                ):
+                    if isinstance(item, dict):
+                        sources = item.get("sources", [])
+                        yield f"data: {json.dumps({**item, 'cache_hit': False})}\n\n"
+                    else:
+                        collected_tokens.append(item)
+                        yield f"data: {json.dumps({'token': item})}\n\n"
+
+            metrics.record_miss(t.elapsed)
+
+            # 3. Persist session + cache
+            full_answer = "".join(collected_tokens)
+            if x_session_id and full_answer:
+                await save_message(x_session_id, "user", req.question)
+                await save_message(x_session_id, "assistant", full_answer)
+                # Extract long-term memories after every exchange
+                updated_session = session or SessionMemory(session_id=x_session_id)
+                updated_session.add("user", req.question)
+                updated_session.add("assistant", full_answer)
+                await extract_and_save_memories(x_session_id, updated_session)
+            if full_answer:
+                await cache_answer(req.question, full_answer)
+
+        return StreamingResponse(
+            event_stream(),
+            media_type="text/event-stream",
+            headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+        )
+
+    # Non-streaming path
+    with Timer() as t:
+        cached = await get_cached_answer(req.question)
+    if cached:
+        metrics.record_hit(t.elapsed)
+        if x_session_id:
+            await save_message(x_session_id, "user", req.question)
+            await save_message(x_session_id, "assistant", cached)
+        return {"answer": cached, "sources": [], "cache_hit": True, "elapsed_seconds": round(t.elapsed, 2)}
+
+    with Timer() as t:
+        result = await answer(
+            req.question,
+            top_k=req.top_k,
+            source_file=source_file,
+            history=history,
+        )
+
+    metrics.record_miss(t.elapsed)
+
+    if x_session_id:
+        await save_message(x_session_id, "user", req.question)
+        await save_message(x_session_id, "assistant", result.answer)
+        updated_session = session or SessionMemory(session_id=x_session_id)
+        updated_session.add("user", req.question)
+        updated_session.add("assistant", result.answer)
+        await extract_and_save_memories(x_session_id, updated_session)
+
+    await cache_answer(req.question, result.answer)
+
+    return {
+        "answer": result.answer,
+        "sources": result.sources,
+        "cache_hit": False,
+        "elapsed_seconds": result.elapsed_seconds,
+    }
+
+
+@router.post("", summary="Ask a question about ingested documentation")
+async def chat(req: ChatRequest):
+    source_file = (req.filters or {}).get("source_file")
+
+    if req.stream:
+        async def event_stream():
+            with Timer() as t:
+                # Check cache first
+                cached = await get_cached_answer(req.question)
+                if cached:
+                    metrics.record_hit(t.elapsed)
+                    yield f"data: {json.dumps({'token': cached})}\n\n"
+                    yield f"data: {json.dumps({'done': True, 'sources': [], 'cache_hit': True})}\n\n"
+                    return
+
+            collected_tokens: list[str] = []
+            sources: list[str] = []
+
+            with Timer() as t:
+                async for item in stream_answer(
+                    req.question,
+                    top_k=req.top_k,
+                    source_file=source_file,
+                ):
+                    if isinstance(item, dict):
+                        sources = item.get("sources", [])
+                        yield f"data: {json.dumps({**item, 'cache_hit': False})}\n\n"
+                    else:
+                        collected_tokens.append(item)
+                        yield f"data: {json.dumps({'token': item})}\n\n"
+
+            metrics.record_miss(t.elapsed)
+
+            # Store in cache asynchronously (fire-and-forget pattern)
+            full_answer = "".join(collected_tokens)
+            if full_answer:
+                await cache_answer(req.question, full_answer)
+
+        return StreamingResponse(
+            event_stream(),
+            media_type="text/event-stream",
+            headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+        )
+
+    # Non-streaming path
+    with Timer() as t:
+        cached = await get_cached_answer(req.question)
+        if cached:
+            metrics.record_hit(t.elapsed)
+            return {"answer": cached, "sources": [], "cache_hit": True, "elapsed_seconds": round(t.elapsed, 2)}
+
+    with Timer() as t:
+        result = await answer(req.question, top_k=req.top_k, source_file=source_file)
+
+    metrics.record_miss(t.elapsed)
+    await cache_answer(req.question, result.answer)
+
+    return {
+        "answer": result.answer,
+        "sources": result.sources,
+        "cache_hit": False,
+        "elapsed_seconds": result.elapsed_seconds,
+    }

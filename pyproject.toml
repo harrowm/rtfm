@@ -8,24 +8,21 @@ dependencies = [
     "fastapi>=0.115.0",
     "uvicorn[standard]>=0.32.0",
     "python-multipart>=0.0.18",
-    
     # AI/LLM
     "langchain>=0.3.0",
     "langchain-redis>=0.1.0",
     "langchain-community>=0.3.0",
     "ollama>=0.4.0",
-    
     # Document processing
     "pypdf>=4.3.1",
     "markdown>=3.7",
     "beautifulsoup4>=4.12.3",
     "tiktoken>=0.8.0",
-    
     # Redis
     "redis>=5.2.0",
     "redisvl>=0.15.0",
-    
     # Utilities
+    "pydantic-settings>=2.6.0",
     "python-dotenv>=1.0.1",
     "structlog>=24.4.0",
     "prometheus-client>=0.21.0",
@@ -51,6 +48,10 @@ packages = ["src"]
 [tool.uv]
 # Optimize for Apple Silicon
 index-strategy = "unsafe-best-match"
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
 
 [tool.ruff]
 # Optional: linting config

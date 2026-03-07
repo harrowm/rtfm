@@ -1,484 +1,356 @@
 # RTFM Agent
 
-A full-stack AI documentation assistant that ingests technical documentation, answers questions using retrieval-augmented generation (RAG), caches semantically similar queries to reduce inference costs, and maintains both session-based and long-term memory. Built for local execution on Apple Silicon using Python, Redis Stack, LangChain, and Ollama.
+A local AI documentation assistant. Ingest your docs, then ask questions. The agent retrieves the most relevant chunks using vector similarity search, generates answers with a local LLM, caches semantically similar queries, and tracks conversation context across sessions.
 
-## System Requirements
+Runs entirely on your machine — no cloud APIs required.
 
-- **Hardware**: Apple M4 MacBook Air with 24GB unified memory (recommended configuration)
-- **Operating System**: macOS Sonoma 14.0 or later
-- **Docker Desktop**: Version 4.25+ with Apple Silicon (arm64) support enabled
-- **Python**: 3.12 (managed via uv)
+## How it works
 
-The 24GB memory configuration provides sufficient headroom to run the complete stack locally:
-- Qwen 3.5 14B parameter model (quantized): ~9-10 GB
-- BGE-M3 embedding model: ~1.5 GB runtime
-- Redis Stack container: ~500 MB
-- Python runtime and application: ~1-2 GB
-- macOS and background processes: ~3-4 GB
+1. **Ingest** — Upload Markdown, text, or HTML files. The agent splits them into ~500-token chunks, embeds each chunk using BGE-M3, and stores the vectors in Redis.
+2. **Ask** — Submit a question via `POST /chat`. The agent embeds your question, retrieves the top-K matching chunks, builds a prompt with conversation history and long-term memory, and streams the answer back.
+3. **Cache** — After answering, the question + answer pair is stored in a Redis HNSW index. Future questions within a cosine distance of `0.15` return the cached answer immediately, skipping LLM inference.
+4. **Remember** — Conversation history is stored per `X-Session-Id` header. After each exchange, the LLM extracts durable facts into a long-term memory store that persists across sessions.
 
-## Prerequisites: Homebrew Installation
+## Stack
 
-Install required system dependencies using Homebrew:
+| Layer | Component |
+|---|---|
+| API | FastAPI 0.115+ with async lifespan |
+| LLM + embeddings | Ollama — `qwen:14b` (Q4_K_M) and `bge-m3` (1024-dim) |
+| Vector store + cache | Redis Stack 7.2 with HNSW indexes via RedisVL |
+| Config | pydantic-settings with `.env` file |
+| Chunking | tiktoken (`cl100k_base`) token-aware splitter |
+| Tests | pytest + pytest-asyncio (43 tests, no live services needed) |
+
+## System requirements
+
+- **macOS** with Apple Silicon (arm64)
+- **24 GB unified memory** recommended — models use ~11 GB at runtime
+- **Docker Desktop** 4.25+ (arm64)
+- **Python 3.12** (managed by `uv`)
+- **Homebrew**
+
+## Quick start
+
+### 1. Install system dependencies
 
 ```bash
-# Install Homebrew if not already present
-/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
-
-# Install core dependencies
-brew install uv docker ollama redis
-
-# Install optional development tools
-brew install curl jq git
+brew install uv ollama
+# Docker Desktop: https://www.docker.com/products/docker-desktop/
 ```
 
-Verify installations:
-
-```bash
-uv --version
-docker --version
-ollama --version
-redis-cli --version
-```
-
-## Architecture Overview
-
-### Component Diagram
-
-```
-+--------------------------------------------------+
-|              Mac M4 MacBook Air                  |
-+--------------------------------------------------+
-|  +-------------+  +-------------+  +-----------+ |
-|  |   Ollama    |  |   Docker    |  |  Python   | |
-|  |             |  |             |  |  App      | |
-|  | - qwen:14b  |  | - Redis     |  | - FastAPI| |
-|  |   (Q4_K_M)  |  |   Stack     |  | - LangChain| |
-|  | - bge-m3    |  |   (arm64)   |  | - RedisVL | |
-|  +------+------+  +------+------+  +-----+-----+ |
-|         |                |                |       |
-|         | gRPC/HTTP      | TCP:6379       | HTTP  |
-|         v                v                v       |
-|  +-------------+  +-------------+  +-----------+ |
-|  | LLM         |  | Vector      |  | REST API  | |
-|  | Inference   |  | Index +     |  | Endpoints:| |
-|  | (Local)     |  | Cache +     |  | - POST /ingest |
-|  |             |  | Sessions    |  | - POST /chat   |
-|  |             |  | + Memory    |  | - GET  /metrics|
-|  +-------------+  +-------------+  +-----------+ |
-+--------------------------------------------------+
-```
-
-### Data Flow: RAG Query Processing
-
-1. User submits question via POST /chat endpoint
-2. System checks semantic cache for similar prior queries
-3. If cache miss: embed question using BGE-M3 via Ollama
-4. Perform vector similarity search against Redis document index
-5. Retrieve session history and long-term memories from Redis
-6. Construct prompt with retrieved context, conversation history, and user memories
-7. Generate answer using Qwen 3.5:14b via Ollama
-8. Stream response to client, then cache result and update memory stores
-
-### Key Technical Decisions
-
-| Component | Selection | Rationale |
-|-----------|-----------|-----------|
-| LLM | Qwen 3.5:14b via Ollama (Q4_K_M quantization) | Strong reasoning capability with manageable memory footprint on 24GB M4 Air |
-| Embedding Model | BGE-M3 via Ollama | 1024-dimensional vectors, strong multilingual performance, Apache 2.0 license |
-| Vector Database | Redis Stack 7.2+ | Native arm64 Docker support, integrated vector search, caching, and session management |
-| Application Framework | FastAPI + LangChain + RedisVL | Async support, type safety, high-level abstractions for RAG patterns |
-| Package Management | uv | Native Apple Silicon wheel resolution, significantly faster dependency installation, lower memory usage during resolution |
-
-## Project Structure
-
-```
-rtfm-agent/
-├── pyproject.toml          # Project metadata and dependencies (uv-managed)
-├── uv.lock                 # Deterministic dependency lockfile
-├── .python-version         # Python version specification (3.12)
-├── docker-compose.yml      # Redis Stack and optional Agent Memory Server
-├── README.md               # This file
-│
-├── src/
-│   ├── __init__.py
-│   ├── main.py             # FastAPI application entrypoint
-│   ├── config.py           # Configuration management
-│   ├── models/
-│   │   ├── schemas.py      # Pydantic request/response models
-│   │   └── memory.py       # Session and long-term memory models
-│   ├── services/
-│   │   ├── ollama_client.py    # Unified LLM and embedding client
-│   │   ├── redis_manager.py    # Redis connection and index management
-│   │   ├── ingestion.py        # Document loading, chunking, embedding
-│   │   ├── rag.py              # RAG pipeline orchestration
-│   │   ├── cache.py            # Semantic caching logic
-│   │   └── memory.py           # Session and long-term memory handlers
-│   ├── utils/
-│   │   ├── chunking.py         # Token-aware text splitting
-│   │   ├── prompts.py          # System prompts for RAG and memory extraction
-│   │   └── metrics.py          # Performance and cache metrics tracking
-│   └── api/
-│       ├── endpoints/
-│       │   ├── ingest.py       # Document ingestion endpoint
-│       │   ├── chat.py         # Chat endpoint with streaming support
-│       │   ├── metrics.py      # Observability metrics endpoint
-│       │   └── admin.py        # Administrative endpoints (cache flush, etc.)
-│       └── deps.py             # FastAPI dependency injections
-│
-├── tests/
-│   ├── conftest.py
-│   ├── test_ingestion.py
-│   ├── test_rag.py
-│   ├── test_cache.py
-│   └── test_memory.py
-│
-├── docs/
-│   ├── sample_docs/        # Test documentation files (Markdown, HTML)
-│   └── api.md              # OpenAPI specification
-│
-└── scripts/
-    ├── dev.sh              # Development environment startup script
-    ├── create_indexes.py   # Redis vector index initialization
-    └── benchmark.py        # Local performance testing utilities
-```
-
-## Setup Instructions
-
-### Step 1: Clone and Initialize Project
+### 2. Clone and install Python dependencies
 
 ```bash
 git clone https://github.com/harrowm/rtfm.git
 cd rtfm
-
-# Initialize uv project environment
-uv python install 3.12
-uv venv --python 3.12
+uv sync
 ```
 
-### Step 2: Install Python Dependencies
-
-```bash
-uv sync --all-extras
-```
-
-### Step 3: Start the Environment
+### 3. Start everything
 
 ```bash
 ./scripts/dev.sh
 ```
 
-`scripts/dev.sh` automates the remaining setup:
+`dev.sh` does the following in order:
 
-1. **Ollama models** — pulls `qwen:14b` and `bge-m3` if not already present (~9-10 GB total on first run)
-2. **Docker Desktop** — launches it automatically if it isn't running and waits until the daemon is ready
-3. **Redis Stack** — starts the Redis Stack container via Docker Compose
-4. **FastAPI server** — starts the application at http://localhost:8000
+1. Pulls `qwen:14b` and `bge-m3` via Ollama if not already present (~11 GB on first run)
+2. Launches Docker Desktop if it is not running and waits for the daemon to be ready
+3. Starts Redis Stack via Docker Compose and polls until `redis-cli ping` returns `PONG`
+4. Creates the HNSW vector indexes in Redis
+5. Starts `uvicorn` at **http://localhost:8000**
 
-Interactive API documentation is available at http://localhost:8000/docs once the server is running.
+> **First run:** Model downloads can take several minutes. Subsequent starts skip the download and complete in seconds.
 
-> **First run note:** Downloading the Ollama models can take several minutes depending on your connection. Subsequent runs skip the download and start in seconds.
+Interactive API docs: **http://localhost:8000/docs**
 
-<details>
-<summary>Manual startup steps (if you prefer not to use dev.sh)</summary>
-
-```bash
-# Pull Ollama models
-ollama pull qwen:14b
-ollama pull bge-m3
-
-# Start Redis Stack
-docker compose up -d redis-stack
-
-# Verify Redis connectivity
-redis-cli ping
-# Expected response: PONG
-
-# Initialize Redis vector indexes
-uv run python scripts/create_indexes.py
-
-# Start the application
-uv run uvicorn src.main:app --reload --host 127.0.0.1 --port 8000 --workers 1
-```
-
-This creates two Redis indexes:
-- `docs`: For storing document chunks with vector embeddings and metadata
-- `rag_cache`: For semantic caching of question-answer pairs
-
-</details>
-
-## Development Workflow
-
-### Running Tests
-
-```bash
-uv run pytest tests/ -v
-```
-
-### Code Quality Checks
-
-```bash
-# Linting
-uv run ruff check src/ tests/
-
-# Type checking
-uv run mypy src/
-
-# Auto-formatting
-uv run ruff format src/ tests/
-```
-
-### Adding New Dependencies
-
-```bash
-# Add a production dependency
-uv add package-name
-
-# Add a development-only dependency
-uv add --dev pytest-cov
-
-# Update all dependencies to latest compatible versions
-uv lock --upgrade
-```
-
-### Environment Configuration
-
-Create a `.env` file from the example:
+## Configuration
 
 ```bash
 cp .env.example .env
 ```
 
-Key configuration variables:
+| Variable | Default | Description |
+|---|---|---|
+| `REDIS_URL` | `redis://localhost:6379` | Redis connection string |
+| `OLLAMA_BASE_URL` | `http://localhost:11434` | Ollama API base URL |
+| `LLM_MODEL` | `qwen:14b` | Chat completion model |
+| `EMBEDDING_MODEL` | `bge-m3` | Embedding model |
+| `EMBEDDING_DIMS` | `1024` | Must match the embedding model output |
+| `CHUNK_SIZE` | `500` | Max tokens per document chunk |
+| `CHUNK_OVERLAP` | `50` | Token overlap between consecutive chunks |
+| `CACHE_DISTANCE_THRESHOLD` | `0.15` | Cosine distance below which a cached answer is returned |
+| `CACHE_TTL_SECONDS` | `86400` | Cache entry lifetime (24 h) |
+| `SESSION_TTL_HOURS` | `24` | Session history lifetime |
+| `LOG_LEVEL` | `info` | Uvicorn log level |
 
-```env
-# Redis connection
-REDIS_URL=redis://localhost:6379
+## API reference
 
-# Ollama endpoint
-OLLAMA_BASE_URL=http://localhost:11434
+### `GET /health`
 
-# Model configuration
-LLM_MODEL=qwen:14b
-EMBEDDING_MODEL=bge-m3
-EMBEDDING_DIMS=1024
+Returns live connectivity status.
 
-# Application settings
-CHUNK_SIZE=500
-CHUNK_OVERLAP=50
-CACHE_DISTANCE_THRESHOLD=0.15
-SESSION_TTL_HOURS=24
+```json
+{
+  "status": "ok",
+  "redis": true,
+  "models": { "qwen:14b": true, "bge-m3": true }
+}
 ```
 
-## API Endpoints
+---
 
-### Document Ingestion
+### `POST /ingest`
 
-```http
-POST /ingest
-Content-Type: multipart/form-data
+Upload a documentation file to the vector index.
 
-Parameters:
-- file: Markdown, text, or HTML documentation file
-- source_name: Optional identifier for the document
+**Request** — `multipart/form-data`
 
-Response:
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `file` | binary | yes | `.md`, `.txt`, `.html`, `.htm`, or `.pdf` |
+| `source_name` | string | no | Label stored with each chunk (defaults to filename) |
+
+**Response**
+
+```json
 {
   "status": "success",
+  "source_file": "getting-started.md",
+  "source_name": "getting-started.md",
   "chunks_processed": 42,
-  "source_file": "getting-started.md"
+  "elapsed_seconds": 3.14
 }
 ```
 
-### Chat Query
+**Example**
 
-```http
-POST /chat
-Content-Type: application/json
+```bash
+curl -X POST http://localhost:8000/ingest \
+  -F "file=@docs/getting-started.md" \
+  -F "source_name=getting-started"
+```
 
-Request:
+---
+
+### `POST /chat`
+
+Ask a question. Returns a streaming SSE or non-streaming JSON response.
+
+**Request body**
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `question` | string | — | Your question (1–4096 chars) |
+| `stream` | bool | `true` | Stream tokens via SSE |
+| `top_k` | int | `5` | Chunks to retrieve (1–20) |
+| `filters` | object | `null` | Optional metadata filter, e.g. `{"source_file": "api.md"}` |
+
+Pass `X-Session-Id: <id>` as a request header to enable session and long-term memory.
+
+**Streaming response** (`stream: true`, default)
+
+```
+data: {"token": "To authenticate"}
+data: {"token": " with the API, include an API key"}
+data: {"done": true, "sources": ["api-reference.md"], "cache_hit": false}
+```
+
+**Non-streaming response** (`stream: false`)
+
+```json
 {
-  "question": "How do I authenticate with the API?",
-  "session_id": "optional-session-identifier",
-  "filters": {
-    "source_file": "api-reference.md"  // Optional metadata filter
-  }
+  "answer": "To authenticate with the API, include an API key in the Authorization header.",
+  "sources": ["api-reference.md"],
+  "cache_hit": false,
+  "elapsed_seconds": 1.82
 }
-
-Response (streaming via Server-Sent Events):
-data: {"token": "To authenticate", "source": null}
-data: {"token": " with the API, include", "source": null}
-data: {"token": " an API key in the", "source": ["api-reference.md:Authentication"]}
-data: {"done": true}
 ```
 
-### Metrics
+**Examples**
 
-```http
-GET /metrics
+```bash
+# Streaming with session memory
+curl -X POST http://localhost:8000/chat \
+  -H "Content-Type: application/json" \
+  -H "X-Session-Id: my-session" \
+  -d '{"question": "How do I install the SDK?"}'
 
-Response (Prometheus format):
-# HELP rtfm_cache_hits_total Total number of semantic cache hits
+# Non-streaming, filtered to a specific doc
+curl -X POST http://localhost:8000/chat \
+  -H "Content-Type: application/json" \
+  -d '{"question": "What is rate limiting?", "stream": false, "filters": {"source_file": "api.md"}}'
+```
+
+---
+
+### `GET /metrics`
+
+Prometheus-format metrics.
+
+```
+# HELP rtfm_cache_hits_total Total semantic cache hits
 # TYPE rtfm_cache_hits_total counter
 rtfm_cache_hits_total 127
-
-# HELP rtfm_cache_misses_total Total number of semantic cache misses
+# HELP rtfm_cache_misses_total Total semantic cache misses
 # TYPE rtfm_cache_misses_total counter
 rtfm_cache_misses_total 43
-
-# HELP rtfm_request_latency_seconds Request processing latency
-# TYPE rtfm_request_latency_seconds histogram
-rtfm_request_latency_seconds_bucket{le="0.5"} 89
-rtfm_request_latency_seconds_bucket{le="5.0"} 156
-rtfm_request_latency_seconds_bucket{le="+Inf"} 170
 ```
 
-### Administrative Endpoints
+### `GET /metrics/json`
 
-```http
-POST /cache/flush
-# Clears all entries from the semantic cache
+Same data as JSON.
 
-GET /health
-# Returns service health status and component connectivity
+```json
+{
+  "cache_hits": 127,
+  "cache_misses": 43,
+  "hit_rate": 0.747,
+  "avg_latency_seconds": 1.24,
+  "total_requests": 170
+}
 ```
 
-## Performance Considerations for M4 MacBook Air
+---
 
-### Memory Management
+### `POST /cache/flush`
 
-- The application runs with a single Uvicorn worker (`--workers 1`) to prevent memory contention on the 24GB configuration
-- Redis is configured with a 1GB memory limit and LRU eviction policy to prevent unbounded growth
-- Document chunking uses 500-token chunks with 50-token overlap to balance retrieval quality against embedding computation cost
-
-### Quantization Strategy
-
-- Qwen 3.5:14b uses Q4_K_M quantization by default via Ollama, providing optimal quality-to-memory ratio
-- For development iterations where speed is prioritized over final answer quality, consider temporarily using `qwen:7b` or `llama3:8b`
-
-### Caching Configuration
-
-- Semantic cache distance threshold set to 0.15 (cosine distance) provides a balance between hit rate and answer relevance
-- Cache entries have a 24-hour TTL to prevent stale answers while maintaining useful reuse
-- Monitor cache hit rate via `/metrics` endpoint; adjust threshold based on observed query patterns
-
-### Monitoring Resource Usage
-
-The application includes optional memory monitoring via psutil. Enable verbose logging to track resource usage during development:
+Delete all semantic cache entries. Does not affect the document index.
 
 ```bash
-LOG_LEVEL=debug uv run uvicorn src.main:app --host 127.0.0.1 --port 8000
+curl -X POST http://localhost:8000/cache/flush
+# {"status": "ok", "deleted": 12}
 ```
 
-## Testing Guidelines
+---
 
-### Unit Tests
+### `DELETE /session/{session_id}`
+
+Clear the conversation history for a session.
 
 ```bash
-# Run all tests
-uv run pytest tests/
-
-# Run specific test category
-uv run pytest tests/test_rag.py -v
+curl -X DELETE http://localhost:8000/session/my-session
+# {"status": "ok", "session_id": "my-session"}
 ```
 
-### Integration Testing
+---
+
+## Tests
+
+The test suite mocks all external services — no running Redis or Ollama needed.
 
 ```bash
-# Start test environment
-docker compose up -d redis-stack
-uv run pytest tests/ --integration
-
-# Test document ingestion with sample files
-curl -X POST http://localhost:8000/ingest \
-  -F "file=@docs/sample_docs/getting-started.md" \
-  -F "source_name=getting-started"
-
-# Verify data in Redis
-redis-cli FT.INFO docs
-redis-cli HGETALL doc:<key>
+uv run pytest tests/ -v
 ```
 
-### Query Testing Scenarios
+43 tests across 4 files:
 
-1. **Direct knowledge question**: Ask a question explicitly answered in ingested documentation. Verify response accuracy and proper source citation.
+| File | Covers |
+|---|---|
+| `tests/test_ingestion.py` | Text loading, token-aware chunking, embed + store pipeline |
+| `tests/test_rag.py` | Prompt assembly, chunk retrieval, answer generation |
+| `tests/test_cache.py` | Cache hit/miss logic, TTL storage, flush |
+| `tests/test_memory.py` | Session serialisation, long-term fact extraction |
 
-2. **Out-of-scope question**: Ask a question not covered by available documentation. Verify the system acknowledges insufficient context rather than hallucinating.
+## Project structure
 
-3. **Cross-document question**: Ask a question requiring information from multiple source files. Verify the system retrieves and synthesizes context appropriately.
+```
+rtfm/
+├── pyproject.toml           # Dependencies and pytest config
+├── uv.lock                  # Deterministic lockfile
+├── .python-version          # Python 3.12
+├── .env.example             # Environment variable template
+├── docker-compose.yml       # Redis Stack (arm64)
+│
+├── src/
+│   ├── main.py              # FastAPI app, router registration, lifespan
+│   ├── config.py            # pydantic-settings Settings class
+│   ├── models/
+│   │   ├── schemas.py       # Pydantic request/response models
+│   │   └── memory.py        # SessionMemory, LongTermMemory models
+│   ├── services/
+│   │   ├── ollama_client.py # embed(), embed_batch(), generate(), stream(), check_models()
+│   │   ├── redis_manager.py # Singleton Redis client, HNSW index lifecycle
+│   │   ├── ingestion.py     # load → chunk → embed → store pipeline
+│   │   ├── rag.py           # retrieve(), answer(), stream_answer()
+│   │   ├── cache.py         # Semantic cache get/set/flush
+│   │   └── memory.py        # Session and long-term memory persistence
+│   ├── utils/
+│   │   ├── chunking.py      # tiktoken-based text splitter
+│   │   ├── prompts.py       # RAG and memory-extraction prompt templates
+│   │   └── metrics.py       # In-process metrics singleton
+│   └── api/
+│       ├── deps.py          # FastAPI dependency injectors (session, LTM)
+│       └── endpoints/
+│           ├── ingest.py    # POST /ingest
+│           ├── chat.py      # POST /chat (SSE + non-streaming)
+│           ├── metrics.py   # GET /metrics, GET /metrics/json
+│           └── admin.py     # POST /cache/flush, DELETE /session/{id}
+│
+├── tests/
+│   ├── conftest.py          # Shared fixtures: mock Redis singleton, mock Ollama
+│   ├── test_ingestion.py
+│   ├── test_rag.py
+│   ├── test_cache.py
+│   └── test_memory.py
+│
+└── scripts/
+    ├── dev.sh               # One-command dev environment startup
+    └── create_indexes.py    # Standalone index initialisation script
+```
 
-4. **Semantic cache validation**: Ask the same question twice, then ask a semantically similar rephrasing. Verify the second and third requests return faster responses from cache.
+## Development
 
-5. **Session memory validation**: Ask a follow-up question using pronouns or references to prior context. Verify the system maintains conversational continuity.
+### Add dependencies
 
-6. **Hybrid search validation**: Ask a question scoped to a specific document using metadata filters. Verify results are constrained to the specified source.
+```bash
+uv add package-name          # production
+uv add --dev pytest-cov      # dev-only
+```
+
+### Start the server manually
+
+Requires Redis on `localhost:6379` and Ollama on `localhost:11434` to already be running.
+
+```bash
+uv run uvicorn src.main:app --host 127.0.0.1 --port 8000 --reload
+```
 
 ## Troubleshooting
 
-### Ollama Model Loading Issues
-
-If model loading fails or is excessively slow:
+**`/health` returns `"status": "degraded"`**
 
 ```bash
-# Check Ollama service status
-ollama serve  # Run in separate terminal if not already running
-
-# Verify model availability
 ollama list
-
-# Re-pull model if corrupted
-ollama rm qwen:14b
 ollama pull qwen:14b
+ollama pull bge-m3
 ```
 
-### Redis Connection Failures
+**Redis connection refused**
 
 ```bash
-# Verify Docker container status
 docker ps | grep redis
-
-# Check Redis logs
-docker logs rtfm-redis
-
-# Test direct connectivity
-redis-cli ping
+docker compose up -d
+redis-cli ping          # should return PONG
 ```
 
-### High Memory Usage
+**High memory usage**
 
-If the system becomes unresponsive during heavy usage:
+On a 16 GB machine, set `LLM_MODEL=qwen:7b` in `.env`.
 
-1. Monitor memory usage via Activity Monitor or `uv run python -c "import psutil; print(psutil.virtual_memory())"`
-2. Reduce concurrent requests or batch size in ingestion pipeline
-3. Consider temporarily switching to a smaller LLM for development iterations
-4. Increase Redis eviction aggressiveness: `redis-cli CONFIG SET maxmemory-policy allkeys-lru`
+**Docker Desktop not starting**
 
-### Docker Apple Silicon Compatibility
-
-Ensure Docker Desktop is configured for Apple Silicon:
-
-1. Open Docker Desktop settings
-2. Navigate to "General" tab
-3. Verify "Use Apple Virtualization framework" is enabled
-4. Confirm containers show "arch: arm64" in `docker ps` output
+```bash
+open -a "Docker"
+# wait ~30 s then re-run ./scripts/dev.sh
+```
 
 ## License
 
-This project is intended for educational and personal use. Ensure compliance with licenses of all included components:
+Educational and personal use. Component licenses:
 
 - Redis Stack: RSALv2 / SSPL
 - Ollama: MIT
-- LangChain: MIT
-- Qwen models: Check specific model license at https://ollama.com/library/qwen
+- Qwen models: https://ollama.com/library/qwen
 - BGE-M3: Apache 2.0
-
-## Contributing
-
-1. Fork the repository
-2. Create a feature branch: `git checkout -b feature/your-feature-name`
-3. Make changes and ensure tests pass: `uv run pytest tests/`
-4. Run linting and formatting: `uv run ruff check . && uv run ruff format .`
-5. Submit a pull request with descriptive commit messages
-
-## Acknowledgments
-
-This project implements concepts from the Redis "RTFM For Me Agent" coding challenge. Redis Stack provides the vector search, caching, and session management infrastructure. Ollama enables local execution of open-weight language models on Apple Silicon hardware.
