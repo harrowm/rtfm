@@ -47,7 +47,9 @@ async def chat(
     ltm: LongTermMemory | None = Depends(get_long_term_memory),
 ):
     source_file = (req.filters or {}).get("source_file")
-    history = session.to_history_dicts() if session else []
+    # Cap history to last 10 messages (5 exchanges) to avoid prompt bloat
+    raw_history = session.to_history_dicts() if session else []
+    history = raw_history[-10:] if len(raw_history) > 10 else raw_history
 
     if req.stream:
         async def event_stream():

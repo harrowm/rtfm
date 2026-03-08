@@ -283,6 +283,11 @@ with tab_chat:
 
     if st.session_state["messages"] and st.button("🗑 Clear chat history", key="clear_chat"):
         st.session_state["messages"] = []
+        if session_id:
+            try:
+                requests.delete(f"{base_url()}/session/{session_id}", timeout=5)
+            except Exception:
+                pass
         st.rerun()
 
 # ===========================================================================
