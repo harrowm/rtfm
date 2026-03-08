@@ -81,7 +81,7 @@ cp .env.example .env
 | `EMBEDDING_DIMS` | `1024` | Must match the embedding model output |
 | `CHUNK_SIZE` | `300` | Max tokens per document chunk |
 | `CHUNK_OVERLAP` | `30` | Token overlap between consecutive chunks |
-| `CACHE_DISTANCE_THRESHOLD` | `0.25` | Cosine distance below which a cached answer is returned |
+| `CACHE_DISTANCE_THRESHOLD` | `0.15` | Cosine distance below which a cached answer is returned |
 | `RETRIEVAL_SCORE_THRESHOLD` | `0.6` | Cosine distance above which a question is considered off-topic and rejected without LLM inference |
 | `LLM_NUM_CTX` | `4096` | LLM context window in tokens |
 | `LLM_NUM_GPU` | `99` | GPU layers (99 = all layers on GPU) |

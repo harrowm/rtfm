@@ -21,10 +21,10 @@ class TestGetCachedAnswer:
 
     @pytest.mark.asyncio
     async def test_hit_near_threshold(self, mock_embed, mock_redis):
-        """Distance 0.20 should hit with threshold=0.25."""
+        """Distance 0.10 should hit with threshold=0.15."""
         mock_index = AsyncMock()
         mock_index.query = AsyncMock(return_value=[
-            {"question": "How do I auth?", "answer": "Use an API key.", "vector_distance": "0.20"}
+            {"question": "How do I auth?", "answer": "Use an API key.", "vector_distance": "0.10"}
         ])
         with patch("src.services.cache.AsyncSearchIndex", return_value=mock_index):
             result = await get_cached_answer("What is the authentication method?")
